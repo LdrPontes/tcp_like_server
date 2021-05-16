@@ -49,11 +49,11 @@ void tolayer5(int AorB, char datasent[20]);
 
 struct Sender
 {
-    int base; //Primeiro pacote da janela
-    int nextseq; //Numero de seq do próximo pacote a ser enviado
+    int base;        //Primeiro pacote da janela
+    int nextseq;     //Numero de seq do próximo pacote a ser enviado
     int window_size; //Tamnanho da janela
     float estimated_rtt;
-    int buffer_next; //Próximo pacote a ser enviado do buffer (Posícão do buffer)
+    int buffer_next;                   //Próximo pacote a ser enviado do buffer (Posícão do vetor)
     struct pkt packet_buffer[BUFSIZE]; //Vetor de pacote a serem enviados
 } A;
 
@@ -75,7 +75,7 @@ int get_checksum(struct pkt *packet)
 
 void send_window()
 {
-    //Envia todos os pacotes 
+    //Envia todos os pacotes
     while (A.nextseq < A.buffer_next && A.nextseq < A.base + A.window_size)
     {
         struct pkt *packet = &A.packet_buffer[A.nextseq % BUFSIZE];
@@ -85,6 +85,23 @@ void send_window()
             starttimer(0, A.estimated_rtt); //Inicia o timer da janela
         ++A.nextseq;
     }
+}
+
+void buffer_package(struct msg message)
+{
+    struct pkt *packet = &A.packet_buffer[A.buffer_next % BUFSIZE];
+    packet->seqnum = A.buffer_next;
+    memmove(packet->payload, message.data, 20);
+    packet->checksum = get_checksum(packet);
+    ++A.buffer_next;
+}
+
+int is_buffer_ready()
+{
+    if (A.buffer_next - A.base == A.window_size)
+        return 1;
+
+    return 0;
 }
 
 /* called from layer 5, passed the data to be sent to other side */
@@ -97,13 +114,10 @@ void A_output(struct msg message)
         return;
     }
 
-    printf("  A_output: bufferred packet (seq=%d): %s\n", A.buffer_next, message.data);
-    struct pkt *packet = &A.packet_buffer[A.buffer_next % BUFSIZE];
-    packet->seqnum = A.buffer_next;
-    memmove(packet->payload, message.data, 20);
-    packet->checksum = get_checksum(packet);
-    ++A.buffer_next;
-    send_window();
+    buffer_package(message);
+
+    if (is_buffer_ready() == 1)
+        send_window();
 }
 
 /* need be completed only for extra credit */
@@ -128,11 +142,10 @@ void A_input(struct pkt packet)
         return;
     }
 
-
     printf("  A_input: got ACK (ack=%d)\n", packet.acknum);
     stoptimer(0);
     A.base = packet.acknum + 1;
-    //Verifica se 
+    //Verifica se
     if (A.base == A.nextseq)
     {
         printf("  A_input: stop timer\n");
