@@ -42,7 +42,7 @@ void starttimer(int AorB, float increment);
 void stoptimer(int AorB);
 void tolayer3(int AorB, struct pkt packet);
 void tolayer5(int AorB, char datasent[20]);
-
+void resend_packages();
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
 #define BUFSIZE 64
@@ -75,15 +75,16 @@ int get_checksum(struct pkt *packet)
 
 void send_window()
 {
-    //TODO Achar um jeito de só enviar os que ainda não foram enviados
     //Envia todos os pacotes
     while (A.nextseq < A.buffer_next && A.nextseq < A.base + A.window_size)
     {
         struct pkt *packet = &A.packet_buffer[A.nextseq % BUFSIZE];
         printf("  send_window: send packet (seq=%d): %s\n", packet->seqnum, packet->payload);
         tolayer3(0, *packet);
+
         if (A.base == A.nextseq)
             starttimer(0, A.estimated_rtt); //Inicia o timer do primeiro pacote da janela
+            
         A.nextseq++;
     }
 }
