@@ -75,6 +75,7 @@ int get_checksum(struct pkt *packet)
 
 void send_window()
 {
+    //TODO Achar um jeito de só enviar os que ainda não foram enviados
     //Envia todos os pacotes
     while (A.nextseq < A.buffer_next && A.nextseq < A.base + A.window_size)
     {
@@ -82,8 +83,8 @@ void send_window()
         printf("  send_window: send packet (seq=%d): %s\n", packet->seqnum, packet->payload);
         tolayer3(0, *packet);
         if (A.base == A.nextseq)
-            starttimer(0, A.estimated_rtt); //Inicia o timer da janela
-        ++A.nextseq;
+            starttimer(0, A.estimated_rtt); //Inicia o timer do primeiro pacote da janela
+        A.nextseq++;
     }
 }
 
@@ -136,30 +137,32 @@ void A_input(struct pkt packet)
         return;
     }
 
-    if (packet.acknum < A.base)
+    if (packet.acknum > A.base)
     {
         printf("  A_input: got NAK (ack=%d). drop.\n", packet.acknum);
         return;
     }
 
     printf("  A_input: got ACK (ack=%d)\n", packet.acknum);
-    stoptimer(0);
-    A.base = packet.acknum + 1;
-    //Verifica se
+    A.base = packet.acknum + 1; //Desloca a janela
+
+    //Caso não haja pacotes na janela para enviar
     if (A.base == A.nextseq)
     {
+        stoptimer(0);
         printf("  A_input: stop timer\n");
         send_window();
     }
     else
     {
+        //Reinicia o timer
+        stoptimer(0);
         starttimer(0, A.estimated_rtt);
         printf("  A_input: timer + %f\n", A.estimated_rtt);
     }
 }
 
-/* called when A's timer goes off */
-void A_timerinterrupt(void)
+void resend_packages()
 {
     for (int i = A.base; i < A.nextseq; ++i)
     {
@@ -168,6 +171,12 @@ void A_timerinterrupt(void)
         tolayer3(0, *packet);
     }
     starttimer(0, A.estimated_rtt);
+}
+
+/* called when A's timer goes off */
+void A_timerinterrupt(void)
+{
+    resend_packages();
     printf("  A_timerinterrupt: timer + %f\n", A.estimated_rtt);
 }
 
