@@ -44,6 +44,9 @@ void tolayer3(int AorB, struct pkt packet);
 void tolayer5(int AorB, char datasent[20]);
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
+struct pkt buffer_pkt[50];
+int buffer_next = 0;
+int buffer_seq = 0;
 
 enum SenderState
 {
@@ -74,23 +77,44 @@ int get_checksum(struct pkt *packet)
     return checksum;
 }
 
+void buffer_message(struct msg message)
+{
+    struct pkt packet;
+    packet.seqnum = buffer_seq % 2;
+    memmove(packet.payload, message.data, 20); //Copia a msg para o pacote
+    packet.checksum = get_checksum(&packet);   //cria um checksum para o pacote
+
+    buffer_pkt[buffer_seq] = packet;
+    buffer_seq++;
+}
+
+void send_next()
+{
+    if (buffer_next < buffer_seq)
+    {
+        A.last_packet = buffer_pkt[buffer_next]; //Seta o último pacote enviado
+        A.state = WAIT_ACK;                      //Seta o estado como WAIT_ACK  pois o pacote está esperando o ACK
+
+        tolayer3(0, buffer_pkt[buffer_next]); //Envia o pacote para a camada de rede
+        starttimer(0, A.estimated_rtt);       //Inicia um timer para esperar um ACK
+
+        buffer_next++;
+    }
+}
+
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
     if (A.state != WAIT_LAYER5)
     {
-        printf("  A_output: not yet acked. drop the message: %s\n", message.data);
+        printf("  A_output: not yet acked. buffer message: %s\n", message.data);
+        buffer_message(message);
         return;
     }
+
+    buffer_message(message);
     printf("  A_output: send packet: %s\n", message.data);
-    struct pkt packet;
-    packet.seqnum = A.seq;
-    memmove(packet.payload, message.data, 20); //Copia a msg para o pacote
-    packet.checksum = get_checksum(&packet); //cria um checksum para o pacote
-    A.last_packet = packet; //Seta o último pacote enviado
-    A.state = WAIT_ACK; //Seta o estado como WAIT_ACK  pois o pacote está esperando o ACK
-    tolayer3(0, packet); //Envia o pacote para a camada de rede
-    starttimer(0, A.estimated_rtt); //Inicia um timer para esperar um ACK
+    send_next();
 }
 
 /* need be completed only for extra credit */
@@ -102,30 +126,32 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-	//Verifica se o Sender está esperando um ACK
+    //Verifica se o Sender está esperando um ACK
     if (A.state != WAIT_ACK)
     {
         printf("  A_input: A->B only. drop.\n");
         return;
     }
 
-	//Verifica o checksum
+    //Verifica o checksum
     if (packet.checksum != get_checksum(&packet))
     {
         printf("  A_input: packet corrupted. drop.\n");
         return;
     }
-	
-	//Verifica se a sequência está correta
+
+    //Verifica se a sequência está correta
     if (packet.acknum != A.seq)
     {
         printf("  A_input: not the expected ACK. drop.\n");
         return;
     }
+
     printf("  A_input: acked.\n");
     stoptimer(0);
-    A.seq = 1 - A.seq; //Alterna o BIT da sequência
+    A.seq = 1 - A.seq;
     A.state = WAIT_LAYER5;
+    send_next();
 }
 
 /* called when A's timer goes off */
@@ -136,7 +162,7 @@ void A_timerinterrupt(void)
         printf("  A_timerinterrupt: not waiting ACK. ignore event.\n");
         return;
     }
-	//Reenvia o último pacote e reinicia o timer
+    //Reenvia o último pacote e reinicia o timer
     printf("  A_timerinterrupt: resend last packet: %s.\n", A.last_packet.payload);
     tolayer3(0, A.last_packet);
     starttimer(0, A.estimated_rtt);
@@ -164,14 +190,14 @@ void send_ack(int AorB, int ack)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-	//Verifica se o pacote chegou corrompido
+    //Verifica se o pacote chegou corrompido
     if (packet.checksum != get_checksum(&packet))
     {
         printf("  B_input: packet corrupted. send NAK.\n");
         send_ack(1, 1 - B.seq); //Envia um NAK
         return;
     }
-	//Verifica se a sequência é correta
+    //Verifica se a sequência é correta
     if (packet.seqnum != B.seq)
     {
         printf("  B_input: not the expected seq. send NAK.\n");
